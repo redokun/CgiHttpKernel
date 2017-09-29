@@ -15,6 +15,24 @@ class CgiHttpKernelTest extends \PHPUnit_Framework_TestCase
         $this->kernel = new CgiHttpKernel(__DIR__.'/Fixtures', null, $this->phpCgiBin);
     }
 
+    /**
+     * Call protected/private method of a class.
+     *
+     * @param object &$object    Instantiated object that we will run method on.
+     * @param string $methodName Method name to call
+     * @param array  $parameters Array of parameters to pass into method.
+     *
+     * @return mixed Method return.
+     */
+    public function invokeMethod($object, $methodName, array $parameters = [])
+    {
+        $reflection = new \ReflectionClass(get_class($object));
+        $method = $reflection->getMethod($methodName);
+        $method->setAccessible(true);
+
+        return $method->invokeArgs($object, $parameters);
+    }
+
     /** @test */
     public function handleShouldRenderRequestedFile()
     {
@@ -281,5 +299,18 @@ class CgiHttpKernelTest extends \PHPUnit_Framework_TestCase
 
         $expected = 'bar';
         $this->assertSame($expected, $response->getContent());
+    }
+
+    /** @test */
+    public function cookieSerialization()
+    {
+        $cookies = new \Symfony\Component\HttpFoundation\ParameterBag([
+            "c1" => "a&b",
+            "c2" => "v2",
+        ]);
+
+        $result = $this->invokeMethod($this->kernel, 'getCookiesHeaderValue', [$cookies]);
+
+        $this->assertSame("c1=a%26b; c2=v2", $result);
     }
 }
