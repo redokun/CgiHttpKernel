@@ -6,8 +6,6 @@ use Symfony\Component\HttpFoundation\Request;
 
 $app = new Silex\Application();
 
-$app['exception_handler']->disable();
-
 $app->get('/foo', function () {
     return 'bar';
 });
