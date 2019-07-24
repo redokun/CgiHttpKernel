@@ -2,19 +2,22 @@
 
 namespace Igorw\CgiHttpKernel;
 
+use phpDocumentor\Reflection\DocBlock\Tags\Factory\Strategy;
+use Symfony\Component\HttpFoundation\Cookie;
+use Symfony\Component\HttpFoundation\File\UploadedFile;
+use Symfony\Component\HttpFoundation\FileBag;
+use Symfony\Component\HttpFoundation\ParameterBag;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\ParameterBag;
-use Symfony\Component\HttpFoundation\Cookie;
-use Symfony\Component\HttpFoundation\FileBag;
-use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
-use Symfony\Component\Process\ProcessBuilder;
+use Symfony\Component\Process\Process;
 
 class CgiHttpKernel implements HttpKernelInterface
 {
     private $rootDir;
+
     private $frontController;
+
     private $phpCgiBin;
 
     public function __construct($rootDir, $frontController = null, $phpCgiBin = null)
@@ -28,7 +31,7 @@ class CgiHttpKernel implements HttpKernelInterface
     {
         $filename = $this->frontController ?: ltrim($request->getPathInfo(), '/');
 
-        if (!file_exists($this->rootDir.'/'.$filename)) {
+        if (!file_exists($this->rootDir . '/' . $filename)) {
             return new Response('The requested file could not be found.', 404);
         }
 
@@ -36,43 +39,48 @@ class CgiHttpKernel implements HttpKernelInterface
 
         if (count($request->files)) {
             $boundary = $this->getMimeBoundary();
-            $request->headers->set('Content-Type', 'multipart/form-data; boundary='.$boundary);
+            $request->headers->set('Content-Type', 'multipart/form-data; boundary=' . $boundary);
             $requestBody = $this->buildMultipartParameters($boundary, $request->request);
             $requestBody .= $this->encodeMultipartFiles($boundary, $request->files);
         }
 
-        $builder = ProcessBuilder::create()
-            ->add($this->phpCgiBin)
-            ->add('-d expose_php=Off')
-            ->add('-d cgi.force_redirect=Off')
-            ->add($filename)
-            ->setInput($requestBody)
-            ->setWorkingDirectory($this->rootDir);
+        $env = [];
 
         foreach ($request->server->all() as $name => $value) {
-            $builder->setEnv($name, $value);
+            $env[$name] = $value;
         }
 
         foreach ($request->headers->all() as $name => $values) {
-            $name = 'HTTP_'.strtoupper(str_replace('-', '_', $name));
-            $builder->setEnv($name, array_shift($values));
+            $name = 'HTTP_' . strtoupper(str_replace('-', '_', $name));
+            $env[$name] = array_shift($values);
         }
 
-        $builder
-            ->setEnv('SCRIPT_NAME', '/'.$filename)
-            ->setEnv('SCRIPT_FILENAME', $this->rootDir.'/'.$filename)
-            ->setEnv('PATH_INFO', $request->getPathInfo())
-            ->setEnv('QUERY_STRING', $request->getQueryString())
-            ->setEnv('REQUEST_URI', $request->getRequestUri())
-            ->setEnv('REQUEST_METHOD', $request->getMethod())
-            ->setEnv('CONTENT_LENGTH', strlen($requestBody))
-            ->setEnv('CONTENT_TYPE', $request->headers->get('Content-Type'))
-            ->setEnv('SYMFONY_ATTRIBUTES', serialize($request->attributes->all()));
-
         $cookie = $this->getCookiesHeaderValue($request->cookies);
-        $builder->setEnv('HTTP_COOKIE', $cookie);
+        $env['HTTP_COOKIE'] = $cookie;
 
-        $process = $builder->getProcess();
+        $env = array_merge($env, [
+            'SCRIPT_NAME' => '/' . $filename,
+            'SCRIPT_FILENAME' => $this->rootDir . '/' . $filename,
+            'PATH_INFO' => $request->getPathInfo(),
+            'QUERY_STRING' => $request->getQueryString(),
+            'REQUEST_URI' => $request->getRequestUri(),
+            'REQUEST_METHOD' => $request->getMethod(),
+            'CONTENT_LENGTH' => strlen($requestBody),
+            'CONTENT_TYPE' => $request->headers->get('Content-Type'),
+            'SYMFONY_ATTRIBUTES' => serialize($request->attributes->all()),
+        ]);
+
+        // Prepare process
+
+        $cmd = [
+            $this->phpCgiBin,
+            '-d expose_php=Off',
+            '-d cgi.force_redirect=Off',
+           $filename,
+        ];
+
+        $process = new Process($cmd, $this->rootDir, $env, $requestBody);
+
         $process->start();
         $process->wait();
 
@@ -93,7 +101,7 @@ class CgiHttpKernel implements HttpKernelInterface
         return $response;
     }
 
-    private function getRequestBody(Request $request)
+    private function getRequestBody(Request $request): string
     {
         return $request->getContent() ?: $this->getUrlEncodedParameterBag($request->request);
     }
@@ -102,7 +110,7 @@ class CgiHttpKernel implements HttpKernelInterface
     {
         if (isset($headers['Status'])) {
             list($code) = explode(' ', $headers['Status']);
-            return (int) $code;
+            return (int)$code;
         }
 
         return 200;
@@ -116,7 +124,7 @@ class CgiHttpKernel implements HttpKernelInterface
 
         $headerMap = array();
 
-        $headerList  = preg_replace('~\r\n[\t ]~', ' ', $headerListRaw);
+        $headerList = preg_replace('~\r\n[\t ]~', ' ', $headerListRaw);
         $headerLines = explode("\r\n", $headerList);
         foreach ($headerLines as $headerLine) {
             if (false === strpos($headerLine, ':')) {
@@ -125,7 +133,7 @@ class CgiHttpKernel implements HttpKernelInterface
 
             list($name, $value) = explode(':', $headerLine, 2);
 
-            $name  = implode('-', array_map('ucwords', explode('-', $name)));
+            $name = implode('-', array_map('ucwords', explode('-', $name)));
             $value = trim($value, "\t ");
 
             $headerMap[$name][] = $value;
@@ -170,8 +178,8 @@ class CgiHttpKernel implements HttpKernelInterface
         $firstKey = key($cookieMap);
 
         $cookieMap = array_merge($cookieMap, array(
-            'secure'    => isset($cookieMap['secure']),
-            'httponly'  => isset($cookieMap['httponly']),
+            'secure' => isset($cookieMap['secure']),
+            'httponly' => isset($cookieMap['httponly']),
         ));
 
         $cookieMap = array_merge(array(
@@ -198,7 +206,7 @@ class CgiHttpKernel implements HttpKernelInterface
 
     private function buildMultipartParameters($boundary, ParameterBag $parameters)
     {
-        $mimeBoundary = '--'.$boundary."\r\n";
+        $mimeBoundary = '--' . $boundary . "\r\n";
 
         $data = '';
         foreach ($parameters->all() as $name => $parameter) {
@@ -213,7 +221,7 @@ class CgiHttpKernel implements HttpKernelInterface
 
     private function encodeMultipartFiles($boundary, FileBag $files)
     {
-        $mimeBoundary = '--'.$boundary."\r\n";
+        $mimeBoundary = '--' . $boundary . "\r\n";
 
         $data = '';
         foreach ($files->all() as $name => $file) {
@@ -233,13 +241,13 @@ class CgiHttpKernel implements HttpKernelInterface
         $content = file_get_contents($file);
 
         $data = '';
-        $data .= sprintf('Content-Disposition: form-data; name="%s"; filename="%s"'.$eol,
-                         $name,
-                         $file->getClientOriginalName());
-        $data .= sprintf('Content-Type: %s'.$eol,
-                         $file->getClientMimeType());
-        $data .= 'Content-Transfer-Encoding: base64'.$eol.$eol;
-        $data .= chunk_split(base64_encode($content)).$eol;
+        $data .= sprintf('Content-Disposition: form-data; name="%s"; filename="%s"' . $eol,
+            $name,
+            $file->getClientOriginalName());
+        $data .= sprintf('Content-Type: %s' . $eol,
+            $file->getClientMimeType());
+        $data .= 'Content-Transfer-Encoding: base64' . $eol . $eol;
+        $data .= chunk_split(base64_encode($content)) . $eol;
 
         return $data;
     }
@@ -249,7 +257,7 @@ class CgiHttpKernel implements HttpKernelInterface
         $eol = "\r\n";
 
         $data = '';
-        $data .= sprintf('Content-Disposition: form-data; name="%s"',$fieldName);
+        $data .= sprintf('Content-Disposition: form-data; name="%s"', $fieldName);
         $data .= $eol . $eol . $fieldValue . $eol;
 
         return $data;

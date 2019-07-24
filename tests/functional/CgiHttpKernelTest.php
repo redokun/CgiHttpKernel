@@ -11,6 +11,8 @@ class CgiHttpKernelTest extends \PHPUnit_Framework_TestCase
 
     public function __construct()
     {
+        parent::__construct();
+
         $this->phpCgiBin = getenv('CGI_HTTP_KERNEL_BIN');
         $this->kernel = new CgiHttpKernel(__DIR__.'/Fixtures', null, $this->phpCgiBin);
     }
@@ -41,7 +43,7 @@ class CgiHttpKernelTest extends \PHPUnit_Framework_TestCase
 
         $this->assertSame('Hello World', $response->getContent());
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertSame('text/html', $response->headers->get('Content-type'));
+        $this->assertSame('text/html; charset=UTF-8', $response->headers->get('Content-type'));
     }
 
     /** @test */
@@ -172,6 +174,9 @@ class CgiHttpKernelTest extends \PHPUnit_Framework_TestCase
         $response = $this->kernel->handle($request);
 
         $cookies = $response->headers->getCookies();
+
+        $this->assertCount(2, $cookies);
+
         $this->assertSame('foo', $cookies[0]->getName());
         $this->assertSame('baz', $cookies[0]->getValue());
         $this->assertSame('qux', $cookies[1]->getName());
@@ -186,7 +191,7 @@ class CgiHttpKernelTest extends \PHPUnit_Framework_TestCase
 
         $cookies = $response->headers->getCookies();
         $this->assertSame('foo', $cookies[0]->getName());
-        $this->assertSame('', $cookies[0]->getValue());
+        $this->assertSame('deleted', $cookies[0]->getValue());
     }
 
     /** @test */
